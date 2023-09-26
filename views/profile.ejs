@@ -2,7 +2,15 @@
 
 <h2>Profile</h2>
 
+<% if (user) { %>
+
 <p>Welcome <%= user.username %>!</p>
+
+<% } else { %>
+
+<p>You need to login first</p>
+
+<% } %>
 
 <a href="/logout">Logout</a>
 

@@ -102,6 +102,10 @@ app.get("/register", (req, res) => {
   res.render("register");
 });
 
+app.get("/profile", (req, res) => {
+  res.render("profile", { user: req.user });
+});
+
 app.get("/", async (req, res) => {
   const allPosts = await Post.find({});
 
@@ -157,6 +161,10 @@ app.get("/posts/:postId", async (req, res) => {
       console.log(err);
       res.redirect("/");
     });
+});
+
+app.get("/logout", (req, res) => {
+  res.redirect("/");
 });
 
 app.listen(3000, async () => {
