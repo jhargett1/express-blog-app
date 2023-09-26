@@ -1,6 +1,10 @@
 <%- include("partials/header"); -%>
 
-  <h1><%=title%></h1>
-  <p><%=content%></p>
+<h1><%=title%></h1>
+<p><%=content%></p>
 
-<%- include("partials/footer"); -%>
+<% if(user) { %>
+<form action="/posts/<%= id %>/delete" method="POST">
+  <button>Delete Post</button>
+</form>
+<% } %> <%- include("partials/footer"); -%>

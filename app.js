@@ -95,7 +95,7 @@ app.post("/login", passport.authenticate("local"), (req, res) => {
 });
 
 app.get("/login", (req, res) => {
-  res.render("login");
+  res.render("login", { user: req.user });
 });
 
 app.get("/register", (req, res) => {
@@ -106,7 +106,7 @@ app.get("/profile", (req, res) => {
   res.render("profile", { user: req.user });
 });
 
-app.get("/", async (req, res) => {
+app.get("/", checkAuth, async (req, res) => {
   const allPosts = await Post.find({});
 
   if (allPosts.length === 0) {
@@ -116,20 +116,13 @@ app.get("/", async (req, res) => {
     res.render("home", {
       startingContent: homeStartingContent,
       posts: allPosts,
+      user: req.user,
     });
   }
 });
 
-app.get("/about", async (req, res) => {
-  res.render("about", { aboutContent: aboutContent });
-});
-
-app.get("/contact", async (req, res) => {
-  res.render("contact", { contactContent: contactContent });
-});
-
-app.get("/compose", async (req, res) => {
-  res.render("compose");
+app.get("/compose", checkAuth, (req, res) => {
+  res.render("compose", { user: req.user });
 });
 
 app.post("/compose", async (req, res) => {
@@ -147,11 +140,13 @@ app.get("/posts/:postId", async (req, res) => {
   const requestedPostId = req.params.postId;
 
   Post.findById(requestedPostId)
-    .then((foundPost) => {
-      if (foundPost) {
+    .then((post) => {
+      if (post) {
         res.render("post", {
-          title: foundPost.title,
-          content: foundPost.content,
+          title: post.title,
+          content: post.content,
+          id: post._id,
+          user: req.user,
         });
       } else {
         res.redirect("/");
@@ -161,6 +156,11 @@ app.get("/posts/:postId", async (req, res) => {
       console.log(err);
       res.redirect("/");
     });
+});
+
+app.post("/posts/:postId/delete", checkAuth, async (req, res) => {
+  await Post.findByIdAndDelete(req.params.postId);
+  res.redirect("/");
 });
 
 app.get("/logout", (req, res) => {

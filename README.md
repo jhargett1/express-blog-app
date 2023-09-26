@@ -6,6 +6,8 @@ This is a simple blog app built with Node.js, Express, MongoDB, and EJS.
 
 - Create, edit, delete blog posts
 - View all posts or a single post
+- User authentication
+- Users can only delete their own posts
 - Styled with Bootstrap
 
 ## Usage
@@ -42,6 +44,13 @@ The app will be served at http://localhost:3000
 - Lodash - utility library
 - Bootstrap - styling
 - Passport - authentication
+
+## New Functionality
+
+- Users can register and login
+- Authenticated users can create, edit, and delete posts
+- Delete post button on post detail page
+- Route and middleware to handle post deletion by ID
 
 ## License
 
