@@ -21,12 +21,12 @@ npm install
 Create a .env file with your MongoDB connection string
 
 ```
-CONNECTION_MONGO=YOUR_CONNECTION_STRING  
+CONNECTION_MONGO=YOUR_CONNECTION_STRING
 ```
 
 ### Run
 
-```bash 
+```bash
 npm start
 ```
 
@@ -36,11 +36,12 @@ The app will be served at http://localhost:3000
 
 - Express - web framework
 - MongoDB - database
-- Mongoose - MongoDB ODM  
+- Mongoose - MongoDB ODM
 - EJS - templating engine
 - Body-parser - parse request bodies
 - Lodash - utility library
 - Bootstrap - styling
+- Passport - authentication
 
 ## License
 
