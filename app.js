@@ -5,9 +5,9 @@ const session = require("express-session");
 const bodyParser = require("body-parser");
 const mongoose = require("mongoose");
 const ejs = require("ejs");
+const multer = require("multer");
 const _ = require("lodash");
 require("dotenv").config();
-const connectString = process.env.CONNECTION_MONGO;
 
 const homeStartingContent =
   "Lacus vel facilisis volutpat est velit egestas dui id ornare. Semper auctor neque vitae tempus quam. Sit amet cursus sit amet dictum sit amet justo. Viverra tellus in hac habitasse. Imperdiet proin fermentum leo vel orci porta. Donec ultrices tincidunt arcu non sodales neque sodales ut. Mattis molestie a iaculis at erat pellentesque adipiscing. Magnis dis parturient montes nascetur ridiculus mus mauris vitae ultricies. Adipiscing elit ut aliquam purus sit amet luctus venenatis lectus. Ultrices vitae auctor eu augue ut lectus arcu bibendum at. Odio euismod lacinia at quis risus sed vulputate odio ut. Cursus mattis molestie a iaculis at erat pellentesque adipiscing.";
@@ -17,7 +17,13 @@ const contactContent =
   "Scelerisque eleifend donec pretium vulputate sapien. Rhoncus urna neque viverra justo nec ultrices. Arcu dui vivamus arcu felis bibendum. Consectetur adipiscing elit duis tristique. Risus viverra adipiscing at in tellus integer feugiat. Sapien nec sagittis aliquam malesuada bibendum arcu vitae. Consequat interdum varius sit amet mattis. Iaculis nunc sed augue lacus. Interdum posuere lorem ipsum dolor sit amet consectetur adipiscing elit. Pulvinar elementum integer enim neque. Ultrices gravida dictum fusce ut placerat orci nulla. Mauris in aliquam sem fringilla ut morbi tincidunt. Tortor posuere ac ut consequat semper viverra nam libero.";
 
 const app = express();
-mongoose.connect(connectString);
+mongoose
+  .connect(process.env.CONNECTION_MONGO, {
+    useNewUrlParser: true,
+    useUnifiedTopology: true,
+  })
+  .then(() => console.log("DB Connected"))
+  .catch((err) => console.error(err));
 
 const postSchema = new mongoose.Schema({
   title: String,
@@ -27,6 +33,10 @@ const postSchema = new mongoose.Schema({
 const userSchema = new mongoose.Schema({
   username: String,
   password: String,
+  profileImage: {
+    data: Buffer,
+    contentType: String,
+  },
 });
 
 const Post = mongoose.model("Post", postSchema);
@@ -69,6 +79,14 @@ app.use(
 app.use(passport.initialize());
 app.use(passport.session());
 
+// Set storage engine
+const storage = multer.memoryStorage();
+
+// Init upload
+const upload = multer({
+  storage: storage,
+});
+
 let posts = [];
 
 // Check if user is logged in
@@ -102,7 +120,7 @@ app.get("/register", (req, res) => {
   res.render("register");
 });
 
-app.get("/profile", (req, res) => {
+app.get("/profile", checkAuth, async (req, res) => {
   res.render("profile", { user: req.user });
 });
 
@@ -163,8 +181,38 @@ app.post("/posts/:postId/delete", checkAuth, async (req, res) => {
   res.redirect("/");
 });
 
+app.post(
+  "/profile/upload",
+  checkAuth,
+  upload.single("image"),
+  async (req, res, next) => {
+    try {
+      if (!req.file) {
+        // Handle the case where no file was uploaded
+        res.redirect("/profile");
+        return;
+      }
+
+      // Update the user's profileImage field
+      req.user.profileImage = {
+        data: req.file.buffer, // Use the buffer from multer
+        contentType: req.file.mimetype, // Set the content type from multer
+      };
+
+      await req.user.save();
+
+      res.redirect("/profile");
+    } catch (error) {
+      console.error(error);
+      res.status(500).send("Internal Server Error");
+    }
+  }
+);
+
 app.get("/logout", (req, res) => {
-  res.redirect("/");
+  req.logout(() => {
+    res.redirect("/");
+  });
 });
 
 app.listen(3000, async () => {

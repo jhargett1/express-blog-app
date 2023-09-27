@@ -6,6 +6,25 @@
 
 <p>Welcome <%= user.username %>!</p>
 
+<% if(user.profileImage && user.profileImage.data) { %>
+
+<img
+  src="data:<%= user.profileImage.contentType %>;base64,
+    <%= user.profileImage.data.toString('base64') %>"
+  class="profile-img"
+/>
+
+<% } else { %>
+
+<div class="profile-img no-image">No image uploaded</div>
+
+<% } %>
+
+<form action="/profile/upload" method="post" enctype="multipart/form-data">
+  <input type="file" name="image" />
+  <button type="submit">Upload Profile Image</button>
+</form>
+
 <% } else { %>
 
 <p>You need to login first</p>

@@ -44,6 +44,7 @@ The app will be served at http://localhost:3000
 - Lodash - utility library
 - Bootstrap - styling
 - Passport - authentication
+- Multer - handling file uploads
 
 ## New Functionality
 
@@ -51,6 +52,9 @@ The app will be served at http://localhost:3000
 - Authenticated users can create, edit, and delete posts
 - Delete post button on post detail page
 - Route and middleware to handle post deletion by ID
+- Users can upload profile images
+- Profile images are stored in MongoDB as binary data
+- Persisted profile images across app restarts
 
 ## License
 
