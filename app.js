@@ -1,22 +1,23 @@
 const express = require("express");
-const passport = require("passport");
-const localStrategy = require("passport-local").Strategy;
-const session = require("express-session");
 const bodyParser = require("body-parser");
 const mongoose = require("mongoose");
 const ejs = require("ejs");
 const multer = require("multer");
-const _ = require("lodash");
+const CognitoExpress = require("cognito-express");
 require("dotenv").config();
 
 const homeStartingContent =
   "Lacus vel facilisis volutpat est velit egestas dui id ornare. Semper auctor neque vitae tempus quam. Sit amet cursus sit amet dictum sit amet justo. Viverra tellus in hac habitasse. Imperdiet proin fermentum leo vel orci porta. Donec ultrices tincidunt arcu non sodales neque sodales ut. Mattis molestie a iaculis at erat pellentesque adipiscing. Magnis dis parturient montes nascetur ridiculus mus mauris vitae ultricies. Adipiscing elit ut aliquam purus sit amet luctus venenatis lectus. Ultrices vitae auctor eu augue ut lectus arcu bibendum at. Odio euismod lacinia at quis risus sed vulputate odio ut. Cursus mattis molestie a iaculis at erat pellentesque adipiscing.";
-const aboutContent =
-  "Hac habitasse platea dictumst vestibulum rhoncus est pellentesque. Dictumst vestibulum rhoncus est pellentesque elit ullamcorper. Non diam phasellus vestibulum lorem sed. Platea dictumst quisque sagittis purus sit. Egestas sed sed risus pretium quam vulputate dignissim suspendisse. Mauris in aliquam sem fringilla. Semper risus in hendrerit gravida rutrum quisque non tellus orci. Amet massa vitae tortor condimentum lacinia quis vel eros. Enim ut tellus elementum sagittis vitae. Mauris ultrices eros in cursus turpis massa tincidunt dui.";
-const contactContent =
-  "Scelerisque eleifend donec pretium vulputate sapien. Rhoncus urna neque viverra justo nec ultrices. Arcu dui vivamus arcu felis bibendum. Consectetur adipiscing elit duis tristique. Risus viverra adipiscing at in tellus integer feugiat. Sapien nec sagittis aliquam malesuada bibendum arcu vitae. Consequat interdum varius sit amet mattis. Iaculis nunc sed augue lacus. Interdum posuere lorem ipsum dolor sit amet consectetur adipiscing elit. Pulvinar elementum integer enim neque. Ultrices gravida dictum fusce ut placerat orci nulla. Mauris in aliquam sem fringilla ut morbi tincidunt. Tortor posuere ac ut consequat semper viverra nam libero.";
+
+const cognitoExpress = new CognitoExpress({
+  region: "us-east-1",
+  cognitoUserPoolId: process.env.AWS_COGNITO_USER_POOL_ID,
+  tokenUse: "access",
+  tokenExpiration: 3600,
+});
 
 const app = express();
+
 mongoose
   .connect(process.env.CONNECTION_MONGO, {
     useNewUrlParser: true,
@@ -33,6 +34,7 @@ const postSchema = new mongoose.Schema({
 const userSchema = new mongoose.Schema({
   username: String,
   password: String,
+  preferredUsername: String,
   profileImage: {
     data: Buffer,
     contentType: String,
@@ -42,42 +44,10 @@ const userSchema = new mongoose.Schema({
 const Post = mongoose.model("Post", postSchema);
 const User = mongoose.model("User", userSchema);
 
-passport.use(
-  new localStrategy(async (username, password, done) => {
-    const user = await User.findOne({ username });
-    if (!User) {
-      return done(null, false);
-    }
-    if (password !== user.password) {
-      return done(null, false);
-    }
-    return done(null, user);
-  })
-);
-
-passport.serializeUser((user, done) => {
-  done(null, user.id);
-});
-
-passport.deserializeUser(async (id, done) => {
-  const user = await User.findById(id);
-  done(null, user);
-});
-
 app.set("view engine", "ejs");
 
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(express.static("public"));
-app.use(
-  session({
-    secret: "Secret",
-    resave: false,
-    saveUninitialized: false,
-  })
-);
-
-app.use(passport.initialize());
-app.use(passport.session());
 
 // Set storage engine
 const storage = multer.memoryStorage();
@@ -89,27 +59,39 @@ const upload = multer({
 
 let posts = [];
 
-// Check if user is logged in
-function checkAuth(req, res, next) {
-  if (req.user) {
-    next();
-  } else {
-    res.redirect("/login");
-  }
-}
+const authenticatedRoute = express.Router();
 
 app.post("/register", async (req, res) => {
   const newUser = await User.create({
     username: req.body.username,
     password: req.body.password,
+    preferredUsername: req.body.preferredUsername,
   });
   req.login(newUser, (err) => {
     res.redirect("/");
   });
 });
 
-app.post("/login", passport.authenticate("local"), (req, res) => {
-  res.redirect("/");
+app.post("/login", (req, res) => {
+  // Authenticate using CognitoExpress middleware directly
+  const accessTokenFromClient = req.headers.accesstoken;
+
+  if (!accessTokenFromClient) {
+    return res.status(401).send("Access Token missing from header");
+  }
+
+  cognitoExpress.validate(accessTokenFromClient, function (err, response) {
+    if (err) {
+      return res.status(401).send(err);
+    }
+
+    // User authenticated, attach to response
+    res.locals.user = response;
+
+    // Proceed to your protected route logic here
+
+    res.redirect("/");
+  });
 });
 
 app.get("/login", (req, res) => {
@@ -117,14 +99,14 @@ app.get("/login", (req, res) => {
 });
 
 app.get("/register", (req, res) => {
-  res.render("register");
+  res.render("register", { user: req.user || null });
 });
 
-app.get("/profile", checkAuth, async (req, res) => {
-  res.render("profile", { user: req.user });
+app.get("/profile", async (req, res) => {
+  res.render("profile", { user: res.locals.user });
 });
 
-app.get("/", checkAuth, async (req, res) => {
+app.get("/", async (req, res) => {
   const allPosts = await Post.find({});
 
   if (allPosts.length === 0) {
@@ -134,16 +116,16 @@ app.get("/", checkAuth, async (req, res) => {
     res.render("home", {
       startingContent: homeStartingContent,
       posts: allPosts,
-      user: req.user,
+      user: res.locals.user,
     });
   }
 });
 
-app.get("/compose", checkAuth, (req, res) => {
-  res.render("compose", { user: req.user });
+authenticatedRoute.get("/compose", (req, res) => {
+  res.render("compose", { user: res.locals.user });
 });
 
-app.post("/compose", async (req, res) => {
+authenticatedRoute.post("/compose", async (req, res) => {
   const post = new Post({
     title: req.body.postTitle,
     content: req.body.postBody,
@@ -176,38 +158,33 @@ app.get("/posts/:postId", async (req, res) => {
     });
 });
 
-app.post("/posts/:postId/delete", checkAuth, async (req, res) => {
+app.post("/posts/:postId/delete", async (req, res) => {
   await Post.findByIdAndDelete(req.params.postId);
   res.redirect("/");
 });
 
-app.post(
-  "/profile/upload",
-  checkAuth,
-  upload.single("image"),
-  async (req, res, next) => {
-    try {
-      if (!req.file) {
-        // Handle the case where no file was uploaded
-        res.redirect("/profile");
-        return;
-      }
-
-      // Update the user's profileImage field
-      req.user.profileImage = {
-        data: req.file.buffer, // Use the buffer from multer
-        contentType: req.file.mimetype, // Set the content type from multer
-      };
-
-      await req.user.save();
-
+app.post("/profile/upload", upload.single("image"), async (req, res, next) => {
+  try {
+    if (!req.file) {
+      // Handle the case where no file was uploaded
       res.redirect("/profile");
-    } catch (error) {
-      console.error(error);
-      res.status(500).send("Internal Server Error");
+      return;
     }
+
+    // Update the user's profileImage field
+    req.user.profileImage = {
+      data: req.file.buffer, // Use the buffer from multer
+      contentType: req.file.mimetype, // Set the content type from multer
+    };
+
+    await req.user.save();
+
+    res.redirect("/profile");
+  } catch (error) {
+    console.error(error);
+    res.status(500).send("Internal Server Error");
   }
-);
+});
 
 app.get("/logout", (req, res) => {
   req.logout(() => {
@@ -215,6 +192,5 @@ app.get("/logout", (req, res) => {
   });
 });
 
-app.listen(3000, async () => {
-  console.log("Server started on port 3000");
-});
+// Attach the authenticatedRoute to your app
+app.use("/authenticated", authenticatedRoute);
