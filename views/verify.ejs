@@ -1,0 +1,12 @@
+<%- include("partials/header") %>
+
+<h2>Verify Email</h2>
+
+<form action="/verify" method="post">
+  <label>Verification Code:</label>
+  <input type="text" name="verificationCode" /><br />
+
+  <button type="submit">Verify</button>
+</form>
+
+<%- include('partials/footer') %>
