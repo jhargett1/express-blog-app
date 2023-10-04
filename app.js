@@ -3,33 +3,28 @@ const bodyParser = require("body-parser");
 const mongoose = require("mongoose");
 const ejs = require("ejs");
 const multer = require("multer");
-const AWS = require("aws-sdk");
-const { CognitoIdentityServiceProvider } = require("aws-sdk");
-const CognitoExpress = require("cognito-express");
+const {
+  CognitoIdentityProviderClient,
+  SignUpCommand,
+  ConfirmSignUpCommand,
+  InitiateAuthCommand,
+} = require("@aws-sdk/client-cognito-identity-provider");
 const session = require("express-session");
 require("dotenv").config();
 
 const homeStartingContent =
   "Lacus vel facilisis volutpat est velit egestas dui id ornare. Semper auctor neque vitae tempus quam. Sit amet cursus sit amet dictum sit amet justo. Viverra tellus in hac habitasse. Imperdiet proin fermentum leo vel orci porta. Donec ultrices tincidunt arcu non sodales neque sodales ut. Mattis molestie a iaculis at erat pellentesque adipiscing. Magnis dis parturient montes nascetur ridiculus mus mauris vitae ultricies. Adipiscing elit ut aliquam purus sit amet luctus venenatis lectus. Ultrices vitae auctor eu augue ut lectus arcu bibendum at. Odio euismod lacinia at quis risus sed vulputate odio ut. Cursus mattis molestie a iaculis at erat pellentesque adipiscing.";
 
-// Initialize AWS SDK
-AWS.config.update({
-  accessKeyId: process.env.AWS_ACCESS_KEY_ID,
-  secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
-  region: process.env.AWS_REGION,
-});
-
-// Create a new instance of CognitoIdentityServiceProvider
-const cognitoIdentityServiceProvider = new CognitoIdentityServiceProvider();
-
-const cognitoExpress = new CognitoExpress({
-  region: process.env.AWS_REGION,
-  cognitoUserPoolId: process.env.AWS_COGNITO_USER_POOL_ID,
-  tokenUse: "access",
-  tokenExpiration: 3600,
-});
-
 const app = express();
+
+// Create a new instance of CognitoIdentityProviderClient
+const client = new CognitoIdentityProviderClient({
+  region: process.env.AWS_REGION,
+  credentials: {
+    accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+  },
+});
 
 mongoose
   .connect(process.env.CONNECTION_MONGO, {
@@ -80,90 +75,48 @@ const upload = multer({
   storage: storage,
 });
 
-let posts = [];
-
-const authenticatedRoute = express.Router();
-
-authenticatedRoute.use(async function (req, res, next) {
-  let { accessToken, refreshToken } = req.session;
-
-  // Refresh token if needed
-  if (cognitoExpress.isTokenExpired(accessToken)) {
-    const newAuth = await cognitoExpress.refresh(refreshToken);
-
-    accessToken = newAuth.accessToken;
-    refreshToken = newAuth.refreshToken;
-
-    req.session.accessToken = accessToken;
-    req.session.refreshToken = refreshToken;
-  }
-
-  // Fail if the token is not present in the header.
-  if (!accessToken) {
-    return res.status(401).send("Access Token missing from header");
-  }
-
-  cognitoExpress.validate(accessToken, function (err, response) {
-    if (err) {
-      // If API is not authenticated, return 401 with an error message.
-      return res.status(401).send(err);
-    } else {
-      // If API has been authenticated, populate res.locals.user.
-      res.locals.user = response;
-      next();
-    }
-  });
-});
-
 // Register route with AWS Cognito and MongoDB
 app.post("/register", async (req, res) => {
+  // Create a new user in AWS Cognito
+  const params = {
+    ClientId: process.env.AWS_COGNITO_APP_CLIENT_ID,
+    Username: req.body.preferredUsername,
+    Password: req.body.password,
+    UserAttributes: [
+      {
+        Name: "preferred_username",
+        Value: req.body.preferredUsername,
+      },
+      {
+        Name: "email",
+        Value: req.body.username,
+      },
+    ],
+  };
+
+  const command = new SignUpCommand(params);
+
   try {
     // Create a new user in MongoDB
     const newUserMongo = await User.create({
-      username: req.body.preferredUsername,
+      username: req.body.username,
       password: req.body.password,
       preferredUsername: req.body.preferredUsername,
     });
 
-    // Create a new user in AWS Cognito
-    const params = {
-      ClientId: process.env.AWS_COGNITO_APP_CLIENT_ID,
-      Username: req.body.preferredUsername,
-      Password: req.body.password, // User's password
-      UserAttributes: [
-        // Additional user attributes if needed
-        {
-          Name: "preferred_username",
-          Value: req.body.preferredUsername,
-        },
-        {
-          Name: "email",
-          Value: req.body.username,
-        },
-      ],
-    };
+    await client.send(command);
 
-    cognitoIdentityServiceProvider.signUp(params, (err, data) => {
-      if (err) {
-        console.error(err);
-        // Handle Cognito registration error (e.g., duplicate email)
-        res.status(400).send("Registration failed. Please try again.");
-      } else {
-        // Cognito registration successful, you can handle it as needed
-        console.log("Cognito registration successful:", data);
+    // Store username in session
+    req.session.username = req.body.preferredUsername;
+    req.session.password = req.body.password;
+    req.session.signInUsername = req.body.username;
 
-        // Perform additional actions if needed, such as sending a verification email
-
-        // Redirect the user to the home page or a success page
-        req.session.username = req.body.username;
-        req.session.save();
-        res.redirect("/verify");
-      }
-    });
+    // Redirect to confirmation
+    res.redirect("/verify");
   } catch (err) {
+    // Handle errors
     console.error(err);
-    // Handle MongoDB registration error
-    res.status(400).send("Registration failed. Please try again.");
+    res.status(500).send("Error signing up user");
   }
 });
 
@@ -173,39 +126,57 @@ app.get("/verify", async (req, res) => {
 });
 
 app.post("/verify", async (req, res) => {
-  try {
-    const username = req.session.username;
-    const code = req.body.verificationCode;
+  const username = req.session.username;
+  const code = req.body.verificationCode;
 
+  const params = {
+    ClientId: process.env.AWS_COGNITO_APP_CLIENT_ID,
+    Username: username,
+    ConfirmationCode: code,
+  };
+
+  try {
     console.log("Verifying user", username);
 
-    const params = {
-      ClientId: process.env.AWS_COGNITO_APP_CLIENT_ID,
-      Username: username,
-      ConfirmationCode: code,
-    };
+    const command = new ConfirmSignUpCommand(params);
 
-    console.log("params:", params);
-
-    await cognitoIdentityServiceProvider.confirmSignUp(params).promise();
-
-    const accessToken = await cognitoExpress
-      .authenticate(username)
-      .getPromise();
-
-    req.session.accessToken = accessToken;
-    req.session.refreshToken = auth.refreshToken;
+    // Send confirmation
+    await client.send(command);
 
     res.redirect("/");
   } catch (error) {
     console.error(error);
-    console.log(error.__type);
     res.status(400).send("Email verification failed. Please try again.");
   }
 });
 
-app.post("/login", authenticatedRoute, (req, res) => {
-  res.redirect("/");
+app.post("/login", async (req, res) => {
+  const { username, password } = req.body;
+
+  const params = {
+    ClientId: process.env.AWS_COGNITO_APP_CLIENT_ID,
+    AuthFlow: "USER_PASSWORD_AUTH",
+    AuthParameters: {
+      USERNAME: username,
+      PASSWORD: password,
+    },
+  };
+
+  const command = new InitiateAuthCommand(params);
+
+  try {
+    const response = await client.send(command);
+
+    // Store the access token in the session
+    req.session.accessToken = response.AuthenticationResult.AccessToken;
+    req.session.username = username;
+
+    // Redirect the user to the home page
+    res.redirect("/");
+  } catch (error) {
+    console.error("Authentication error:", error);
+    res.status(401).send("Authentication failed");
+  }
 });
 
 app.get("/login", (req, res) => {
@@ -216,11 +187,21 @@ app.get("/register", (req, res) => {
   res.render("register", { user: req.user || null });
 });
 
-app.get("/profile", authenticatedRoute, async (req, res) => {
-  res.render("profile", { user: res.locals.user });
+app.get("/profile", async (req, res) => {
+  if (!req.session.username) {
+    return res.redirect("/login");
+  }
+
+  const user = await User.findOne({ username: req.session.username });
+
+  res.render("profile", { user });
 });
 
 app.get("/", async (req, res) => {
+  if (!req.session.username) {
+    return res.redirect("/login");
+  }
+
   const allPosts = await Post.find({});
 
   if (allPosts.length === 0) {
@@ -230,24 +211,34 @@ app.get("/", async (req, res) => {
     res.render("home", {
       startingContent: homeStartingContent,
       posts: allPosts,
-      user: res.locals.user,
+      user: req.session.username,
     });
   }
 });
 
-authenticatedRoute.get("/compose", (req, res) => {
-  res.render("compose", { user: res.locals.user });
+app.get("/compose", (req, res) => {
+  if (!req.session.username) {
+    return res.redirect("/login");
+  }
+
+  res.render("compose", {
+    user: req.session.username,
+  });
 });
 
-authenticatedRoute.post("/compose", async (req, res) => {
+app.post("/compose", async (req, res) => {
   const post = new Post({
     title: req.body.postTitle,
     content: req.body.postBody,
   });
 
-  post.save();
-
-  res.redirect("/");
+  try {
+    await post.save();
+    res.redirect("/");
+  } catch (error) {
+    console.error(error);
+    res.status(500).send("Error creating the post");
+  }
 });
 
 app.get("/posts/:postId", async (req, res) => {
@@ -260,14 +251,14 @@ app.get("/posts/:postId", async (req, res) => {
           title: post.title,
           content: post.content,
           id: post._id,
-          user: req.user,
+          user: req.session.username,
         });
       } else {
         res.redirect("/");
       }
     })
     .catch((err) => {
-      console.log(err);
+      console.error(err);
       res.redirect("/");
     });
 });
@@ -278,6 +269,12 @@ app.post("/posts/:postId/delete", async (req, res) => {
 });
 
 app.post("/profile/upload", upload.single("image"), async (req, res, next) => {
+  const username = req.session.username;
+
+  if (!username) {
+    return res.redirect("/login");
+  }
+
   try {
     if (!req.file) {
       // Handle the case where no file was uploaded
@@ -285,13 +282,15 @@ app.post("/profile/upload", upload.single("image"), async (req, res, next) => {
       return;
     }
 
+    const user = await User.findOne({ username });
+
     // Update the user's profileImage field
-    req.user.profileImage = {
+    user.profileImage = {
       data: req.file.buffer, // Use the buffer from multer
       contentType: req.file.mimetype, // Set the content type from multer
     };
 
-    await req.user.save();
+    await user.save();
 
     res.redirect("/profile");
   } catch (error) {
@@ -301,8 +300,11 @@ app.post("/profile/upload", upload.single("image"), async (req, res, next) => {
 });
 
 app.get("/logout", (req, res) => {
-  req.logout(() => {
-    res.redirect("/");
+  req.session.destroy((err) => {
+    if (err) {
+      console.error("Error destroying session: ", err);
+    }
+    res.redirect("/login");
   });
 });
 

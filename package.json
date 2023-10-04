@@ -10,7 +10,10 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
+    "@aws-sdk/client-cognito-identity-provider": "^3.421.0",
+    "aws-sdk": "^2.1467.0",
     "body-parser": "^1.18.3",
+    "cognito-express": "^3.0.3",
     "dotenv": "^16.3.1",
     "ejs": "^3.1.9",
     "express": "^4.16.3",

@@ -4,13 +4,13 @@
 
 <% if (user) { %>
 
-<p>Welcome <%= user.username %>!</p>
+<p>Welcome <%= user.preferredUsername %>!</p>
 
 <% if(user.profileImage && user.profileImage.data) { %>
 
 <img
-  src="data:<%= user.profileImage.contentType %>;base64,
-    <%= user.profileImage.data.toString('base64') %>"
+  src="data:<%= user.profileImage.contentType %>;base64,<%= user.profileImage.data.toString('base64') %>"
+  alt="Profile Image"
   class="profile-img"
 />
 
