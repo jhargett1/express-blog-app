@@ -29,6 +29,8 @@ Before you begin, make sure you have the following prerequisites installed:
    cd blog-app
    ```
 
+Install the required npm packages:
+
 ```bash
 npm install
 ```
